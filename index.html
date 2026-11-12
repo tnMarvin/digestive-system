@@ -1,0 +1,1006 @@
+<!--
+  * 專案名稱：人體消化與營養吸收互動學習系統（國中生物專屬版 - 無干擾教學版）
+  * 核心功能：平時隱藏所有校準紅點與軌跡線，僅在校準模式顯現；Point-in-Polygon零延遲同步；0.5x/1x雙速
+  * 代碼更新時間：2026-11-12 14:45 CST
+-->
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>人體消化與吸收互動學習系統 - 國中生物科專用</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .organ-hotspot {
+      cursor: pointer;
+      fill: transparent;
+      stroke: transparent;
+      stroke-width: 3;
+      transition: all 0.2s ease;
+    }
+    .organ-hotspot:hover {
+      fill: rgba(56, 189, 248, 0.25);
+      stroke: #38bdf8;
+      filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.8));
+    }
+    .organ-active {
+      fill: rgba(251, 191, 36, 0.35) !important;
+      stroke: #fbbf24 !important;
+      stroke-width: 4 !important;
+      filter: drop-shadow(0 0 14px rgba(251, 191, 36, 0.95)) !important;
+    }
+    .calib-handle {
+      cursor: grab;
+      fill: #f43f5e;
+      stroke: #ffffff;
+      stroke-width: 3;
+      transition: transform 0.1s ease;
+    }
+    .calib-handle:active {
+      cursor: grabbing;
+      transform: scale(1.35);
+      fill: #fbbf24;
+    }
+    .calib-handle-organ {
+      cursor: grab;
+      fill: #3b82f6;
+      stroke: #ffffff;
+      stroke-width: 3;
+    }
+    .calib-handle-organ:active {
+      cursor: grabbing;
+      transform: scale(1.35);
+      fill: #10b981;
+    }
+    .path-clickable {
+      cursor: copy;
+    }
+    @keyframes flashEffect {
+      0% { opacity: 0; transform: scale(0.6); }
+      50% { opacity: 1; transform: scale(1.3); filter: drop-shadow(0 0 20px #ffffff); }
+      100% { opacity: 0; transform: scale(1.8); }
+    }
+    .flash-pulse {
+      animation: flashEffect 0.5s ease-out forwards;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans flex flex-col">
+
+  <header class="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-md sticky top-0 z-50">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 text-xl font-bold">
+        🧬
+      </div>
+      <div>
+        <h1 class="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-2">
+          人體消化與吸收互動學習系統
+          <span class="text-xs px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/60">無干擾教學版</span>
+        </h1>
+        <p class="text-xs text-slate-400">解剖底圖純淨展示 ‧ 按需顯現校準輔助</p>
+      </div>
+    </div>
+
+    <div class="flex items-center flex-wrap gap-2">
+      <label class="cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-1.5 rounded-lg font-medium flex items-center gap-1.5 transition shadow">
+        <span>📂 載入底圖 (6841.jpg)</span>
+        <input type="file" id="imageUploader" accept="image/*" class="hidden" />
+      </label>
+
+      <button id="btnToggleCalib" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-600/40 text-xs font-semibold flex items-center gap-1.5 transition shadow">
+        <span>🛠️ 校準模式</span>
+      </button>
+
+      <div class="bg-slate-800 p-1 rounded-lg flex items-center border border-slate-700 text-xs">
+        <button id="btn169" class="px-2.5 py-1 rounded bg-cyan-600 text-white font-medium shadow transition">💻 16:9 電腦版</button>
+        <button id="btnMobile" class="px-2.5 py-1 rounded text-slate-400 hover:text-white font-medium transition">📱 手機直版</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="calibToolbar" class="hidden bg-amber-950/95 border-b border-amber-700/60 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-200 sticky top-14 z-40 shadow-lg">
+    <div class="flex items-center flex-wrap gap-3">
+      <div class="flex items-center gap-1.5">
+        <span class="font-bold text-amber-400">校準對象：</span>
+        <select id="calibTargetSelect" class="bg-slate-900 border border-amber-600/60 text-amber-200 rounded px-2 py-1 font-medium focus:outline-none">
+          <option value="path">🔴 食物運動中心路徑</option>
+          <option value="organ_1">① 口腔 (Mouth)</option>
+          <option value="organ_2">② 食道 (Esophagus)</option>
+          <option value="organ_3">③ 胃 (Stomach)</option>
+          <option value="organ_4">④ 肝臟 (Liver)</option>
+          <option value="organ_5">⑤ 膽囊 (Gallbladder)</option>
+          <option value="organ_6">⑥ 胰臟 (Pancreas)</option>
+          <option value="organ_7">⑦ 十二指腸 (Duodenum)</option>
+          <option value="organ_8">⑧ 小腸 (Small Intestine)</option>
+          <option value="organ_9">⑨ 大腸 (Large Intestine)</option>
+          <option value="organ_10">⑩ 闌尾 (Appendix)</option>
+          <option value="organ_11">⑪ 直腸與肛門 (Rectum & Anus)</option>
+        </select>
+      </div>
+      <div class="text-[11px] text-amber-300/80">
+        💡 提示：點擊線上可「新增點」，按住 <kbd class="bg-amber-900 px-1 rounded text-white">Alt</kbd> 點擊可「刪除點」
+      </div>
+    </div>
+    
+    <div class="flex items-center flex-wrap gap-2">
+      <button id="btnSaveCalib" class="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded font-bold transition shadow">💾 儲存並套用</button>
+      <button id="btnExportJson" class="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold transition shadow">📥 下載 calibration.json</button>
+      <button id="btnResetCalib" class="px-2.5 py-1 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 rounded transition">↺ 還原預設</button>
+    </div>
+  </div>
+
+  <main class="flex-1 flex justify-center p-3 lg:p-6 overflow-x-hidden">
+    <div id="mainContainer" class="w-full max-w-7xl flex flex-col lg:flex-row gap-6 items-start transition-all duration-300">
+
+      <div class="w-full lg:w-[48%] bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col items-center sticky top-20">
+        
+        <div class="w-full flex items-center justify-between mb-3 bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80">
+          <div class="flex items-center gap-2">
+            <button id="btnPlay" class="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow transition">
+              <span id="playIcon">▶</span> <span id="playText">開始消化旅程</span>
+            </button>
+            <button id="btnReset" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition" title="重設動畫">
+              ↺
+            </button>
+          </div>
+          <div class="flex items-center gap-1.5 text-xs">
+            <span class="text-slate-400">講解速率:</span>
+            <button class="speed-btn px-2.5 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-speed="0.5">0.5x (慢速)</button>
+            <button class="speed-btn px-2.5 py-1 rounded bg-cyan-600 text-white font-bold shadow transition" data-speed="1">1x (正常)</button>
+          </div>
+        </div>
+
+        <div class="w-full bg-slate-950/80 rounded-xl p-3 mb-3 border border-slate-800 flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800/60 flex items-center justify-center text-sm">⏱️</div>
+            <div>
+              <div class="text-[10px] tracking-wider uppercase text-cyan-400 font-bold">生理雙時基計時器</div>
+              <div id="stopwatchDisplay" class="font-mono text-base font-extrabold text-white tracking-widest">00 小時 00 分 00 秒</div>
+            </div>
+          </div>
+          <div class="text-right">
+            <div id="timeScaleBadge" class="inline-block text-[10px] px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-800/50">真實1秒 = 生理1秒 (口腔)</div>
+            <div id="currentStage" class="text-xs text-slate-400 mt-0.5">狀態：準備中</div>
+          </div>
+        </div>
+
+        <div id="stageContainer" class="relative w-full max-w-[460px] aspect-[2/3] rounded-xl overflow-hidden bg-slate-950 border border-slate-800 shadow-inner flex items-center justify-center select-none">
+          
+          <img id="anatomyBaseImg" src="digestive.jpg" alt="人體消化系統解剖圖" class="absolute inset-0 w-full h-full object-contain pointer-events-none z-0" onerror="handleImageError()" />
+          
+          <div id="imgPlaceholder" class="hidden absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-0 bg-slate-950">
+            <div class="text-4xl mb-2">🖼️</div>
+            <p class="text-sm font-bold text-slate-300">尚未找到 digestive.jpg</p>
+            <p class="text-xs text-slate-500 mt-1">請點選上方「📂 載入底圖」選擇您的無字圖片 6841.jpg<br>即可精確套用！</p>
+          </div>
+
+          <svg id="interactiveOverlay" class="absolute inset-0 w-full h-full z-10" viewBox="0 0 1000 1500">
+            <!-- 預設 stroke="transparent" 隱藏路徑線條，僅校準時顯現 -->
+            <path id="foodPath" d="" fill="none" stroke="transparent" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 8" />
+
+            <g id="organPolygonsGroup"></g>
+
+            <circle id="foodBolus" cx="0" cy="0" r="15" fill="#f59e0b" stroke="#ffffff" stroke-width="3" opacity="0" filter="drop-shadow(0 0 10px #fbbf24)" pointer-events="none" />
+
+            <circle id="flashCircle" cx="0" cy="0" r="45" fill="none" stroke="#38bdf8" stroke-width="7" opacity="0" pointer-events="none" />
+
+            <!-- 校準手柄預設隱藏 -->
+            <g id="calibHandlesGroup" class="hidden"></g>
+          </svg>
+        </div>
+
+        <div class="mt-3 text-center text-xs text-slate-500">
+          💡 點選器官查看重點，啟用「🛠️ 校準模式」可顯現輔助線並自由微調定位點！
+        </div>
+      </div>
+
+      <div class="w-full lg:w-[52%] flex flex-col gap-4">
+        
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+            <div class="flex items-center gap-3">
+              <span id="organBadge" class="w-8 h-8 rounded-full bg-cyan-600 text-white font-bold flex items-center justify-center text-sm shadow">1</span>
+              <div>
+                <h2 id="organTitle" class="text-xl font-bold text-white">口腔 (Mouth)</h2>
+                <p id="organSubTitle" class="text-xs text-cyan-400">消化道起點 ‧ 兼具物理與化學消化</p>
+              </div>
+            </div>
+            <span id="organEnv" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700">pH 6.5～7.5 (中性)</span>
+          </div>
+
+          <div id="microscopicBox" class="mb-4 bg-slate-950 p-4 rounded-xl border border-slate-800/80">
+            <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+              <span class="font-bold text-amber-400 flex items-center gap-1.5">🔬 微觀特寫放大示意</span>
+              <span id="microscopicLabel" class="text-[11px] text-slate-500">澱粉化學水解</span>
+            </div>
+            
+            <div id="microViewContent" class="h-24 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center p-3"></div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 text-xs">
+            <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-800/80">
+              <div class="font-bold text-blue-400 flex items-center gap-1 mb-1.5">
+                <span>🦷 物理性消化 (機械性)</span>
+              </div>
+              <p id="descPhysical" class="text-slate-300 leading-relaxed">
+                牙齒咀嚼切碎磨細食物，舌頭攪拌讓食物與唾液均勻混合形成濕潤食團。
+              </p>
+            </div>
+            <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-800/80">
+              <div class="font-bold text-rose-400 flex items-center gap-1 mb-1.5">
+                <span>🧪 化學性消化 (酵素作用)</span>
+              </div>
+              <p id="descChemical" class="text-slate-300 leading-relaxed">
+                唾腺分泌唾液，內含「唾液澱粉酶」，可將澱粉初步水解為麥芽糖（雙醣）。
+              </p>
+            </div>
+          </div>
+
+          <div class="bg-gradient-to-r from-amber-950/30 to-amber-900/10 border border-amber-800/40 rounded-xl p-4">
+            <div class="text-xs font-bold text-amber-400 flex items-center gap-1.5 mb-2">
+              <span>★ 國中會考必考關鍵字</span>
+            </div>
+            <ul id="examKeyPoints" class="text-xs text-amber-200/90 space-y-1.5 leading-relaxed list-disc list-inside">
+              <li>澱粉化學消化起點；蛋白質與脂質在口腔內完全不進行化學分解。</li>
+              <li>酵素活性受酸鹼影響：唾液澱粉酶在接近中性活性最高，進入胃內受強酸作用會失去活性。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <span>🌱 小腸絨毛吸收雙軌機制</span>
+            </h3>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">會考必背考點</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div class="bg-blue-950/30 border border-blue-900/40 p-3 rounded-xl">
+              <div class="font-bold text-blue-300 flex items-center gap-1 mb-1">
+                <span>🩸 微血管 (Capillaries)</span>
+              </div>
+              <p class="text-slate-400 text-[11px] mb-1.5">吸收水溶性養分：</p>
+              <div class="flex flex-wrap gap-1 mb-2">
+                <span class="bg-blue-900/50 text-blue-200 px-1.5 py-0.5 rounded text-[10px]">葡萄糖</span>
+                <span class="bg-blue-900/50 text-blue-200 px-1.5 py-0.5 rounded text-[10px]">胺基酸</span>
+                <span class="bg-blue-900/50 text-blue-200 px-1.5 py-0.5 rounded text-[10px]">維生素 B、C</span>
+                <span class="bg-blue-900/50 text-blue-200 px-1.5 py-0.5 rounded text-[10px]">水與無機鹽</span>
+              </div>
+              <p class="text-[10px] text-slate-500">路徑：絨毛微血管 → 肝門靜脈 → 肝臟 → 下腔靜脈</p>
+            </div>
+
+            <div class="bg-amber-950/30 border border-amber-900/40 p-3 rounded-xl">
+              <div class="font-bold text-amber-300 flex items-center gap-1 mb-1">
+                <span>🧈 乳糜管 (Lacteals/淋巴管)</span>
+              </div>
+              <p class="text-slate-400 text-[11px] mb-1.5">吸收脂溶性養分：</p>
+              <div class="flex flex-wrap gap-1 mb-2">
+                <span class="bg-amber-900/50 text-amber-200 px-1.5 py-0.5 rounded text-[10px]">脂肪酸</span>
+                <span class="bg-amber-900/50 text-amber-200 px-1.5 py-0.5 rounded text-[10px]">甘油</span>
+                <span class="bg-amber-900/50 text-amber-200 px-1.5 py-0.5 rounded text-[10px]">維生素 A、D、E、K</span>
+              </div>
+              <p class="text-[10px] text-slate-500">路徑：乳糜管 → 淋巴管 → 胸管 → 靜脈</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const DEFAULT_PATH_POINTS = [
+      { x: 300, y: 255 }, { x: 365, y: 275 }, { x: 388, y: 350 },
+      { x: 388, y: 500 }, { x: 388, y: 640 }, { x: 440, y: 695 },
+      { x: 500, y: 740 }, { x: 450, y: 810 }, { x: 375, y: 830 },
+      { x: 345, y: 870 }, { x: 385, y: 920 }, { x: 460, y: 950 },
+      { x: 350, y: 990 }, { x: 460, y: 1040 }, { x: 340, y: 1070 },
+      { x: 285, y: 1085 }, { x: 255, y: 1050 }, { x: 255, y: 940 },
+      { x: 280, y: 870 }, { x: 400, y: 875 }, { x: 535, y: 885 },
+      { x: 550, y: 980 }, { x: 535, y: 1100 }, { x: 420, y: 1140 },
+      { x: 395, y: 1240 }
+    ];
+
+    const DEFAULT_ORGAN_POLYGONS = {
+      1: [{ x: 230, y: 200 }, { x: 375, y: 200 }, { x: 385, y: 265 }, { x: 320, y: 295 }, { x: 240, y: 280 }],
+      2: [{ x: 370, y: 275 }, { x: 405, y: 275 }, { x: 405, y: 645 }, { x: 370, y: 645 }],
+      3: [{ x: 380, y: 645 }, { x: 470, y: 630 }, { x: 550, y: 700 }, { x: 545, y: 810 }, { x: 450, y: 855 }, { x: 360, y: 840 }, { x: 385, y: 760 }, { x: 410, y: 700 }],
+      4: [{ x: 215, y: 670 }, { x: 450, y: 670 }, { x: 430, y: 775 }, { x: 340, y: 785 }, { x: 230, y: 775 }],
+      5: [{ x: 275, y: 775 }, { x: 315, y: 775 }, { x: 315, y: 825 }, { x: 275, y: 825 }],
+      6: [{ x: 350, y: 825 }, { x: 555, y: 815 }, { x: 565, y: 850 }, { x: 420, y: 865 }, { x: 350, y: 845 }],
+      7: [{ x: 330, y: 840 }, { x: 375, y: 840 }, { x: 375, y: 915 }, { x: 330, y: 915 }],
+      8: [{ x: 275, y: 915 }, { x: 535, y: 915 }, { x: 535, y: 1145 }, { x: 275, y: 1145 }],
+      9: [{ x: 210, y: 850 }, { x: 585, y: 850 }, { x: 585, y: 1165 }, { x: 520, y: 1165 }, { x: 520, y: 890 }, { x: 275, y: 890 }, { x: 275, y: 1165 }, { x: 210, y: 1165 }],
+      10: [{ x: 275, y: 1120 }, { x: 310, y: 1120 }, { x: 310, y: 1155 }, { x: 275, y: 1155 }],
+      11: [{ x: 360, y: 1140 }, { x: 435, y: 1140 }, { x: 425, y: 1280 }, { x: 370, y: 1280 }]
+    };
+
+    let activeCalibrationData = {
+      path: JSON.parse(JSON.stringify(DEFAULT_PATH_POINTS)),
+      organs: JSON.parse(JSON.stringify(DEFAULT_ORGAN_POLYGONS))
+    };
+
+    const organData = {
+      1: {
+        name: "口腔 (Mouth)",
+        sub: "消化道起點 ‧ 兼具物理與化學消化",
+        ph: "pH 6.5～7.5 (中性)",
+        label: "澱粉酵素分解特寫",
+        physical: "牙齒咀嚼切碎咬爛食物（增加表面積），舌頭攪拌混合唾液成食團。",
+        chemical: "唾液含有「唾液澱粉酶」，將巨大分子的澱粉初步切斷成麥芽糖（雙醣）。",
+        points: [
+          "澱粉化學消化的起點，在嘴巴多嚼幾下會感覺微甜。",
+          "蛋白質與脂質在口腔完全沒有化學消化！",
+          "唾液澱粉酶在體溫 (37°C) 與中性環境最具活性。"
+        ],
+        microSvg: `<div class="text-xs font-mono text-cyan-300">澱粉多醣 ➔ [唾液澱粉酶] ➔ 麥芽糖雙醣</div>`
+      },
+      2: {
+        name: "食道 (Esophagus)",
+        sub: "運送食物管道 ‧ 不具化學消化功能",
+        ph: "中性",
+        label: "肌肉波浪蠕動推進",
+        physical: "食道壁平滑肌進行規則的「蠕動 (Peristalsis)」，即使倒立也能把食團推入胃部。",
+        chemical: "食道不分泌任何消化酵素，無化學消化作用。",
+        points: [
+          "食物進食道不是靠地心引力掉下去的，是靠肌肉波浪狀蠕動！",
+          "進入胃的開口稱為賁門，可防止酸性胃內容物逆流。"
+        ],
+        microSvg: `<div class="text-xs text-slate-400">食道壁平滑肌波浪蠕動 ➔ 物理性推進食團</div>`
+      },
+      3: {
+        name: "胃 (Stomach)",
+        sub: "強酸環境 ‧ 蛋白質化學消化起點",
+        ph: "pH 1.5～2.0 (強酸性)",
+        label: "胃壁黏膜與胃蛋白酶",
+        physical: "胃壁發達平滑肌強力蠕動研磨，把食團與胃液混合成濃稠的「食糜 (Chyme)」。",
+        chemical: "分泌胃酸（鹽酸）殺菌並活化「胃蛋白酶」，開始將蛋白質切成較小片段（多肽鏈）。",
+        points: [
+          "蛋白質化學消化的起點！",
+          "胃酸本身不是酵素！功能是殺菌並提供胃蛋白酶所需的強酸環境。",
+          "唾液澱粉酶掉進胃裡會因強酸而失去活性。",
+          "胃壁分泌黏液保護自己，避免胃酸侵蝕形成潰瘍。"
+        ],
+        microSvg: `<div class="text-xs font-mono text-rose-300">蛋白質分子 ➔ [胃蛋白酶/強酸] ➔ 多肽短鏈</div>`
+      },
+      4: {
+        name: "肝臟 (Liver)",
+        sub: "人體最大消化腺 ‧ 製造膽汁",
+        ph: "弱鹼性",
+        label: "膽汁製造工廠",
+        physical: "製造膽汁暫存於膽囊。膽汁將大油滴分散成細小油滴，這屬於「物理性乳化」！",
+        chemical: "膽汁內「完全不含任何消化酵素」！",
+        points: [
+          "會考必考陷阱：膽汁不含任何消化酵素！",
+          "膽汁的功能是「乳化脂質」（物理性變化），大幅增加表面積。",
+          "肝臟也是體內重要的解毒中心與肝醣儲備庫。"
+        ],
+        microSvg: `<div class="text-xs text-amber-300">大脂肪滴 ➔ [膽鹽物理乳化] ➔ 微細乳糜滴（增加表面積）</div>`
+      },
+      5: {
+        name: "膽囊 (Gallbladder)",
+        sub: "儲存與濃縮膽汁之囊袋",
+        ph: "弱鹼性",
+        label: "膽囊排汁",
+        physical: "進食時膽囊受刺激收縮，將濃縮膽汁經總膽管注入十二指腸。",
+        chemical: "膽囊本身不製造膽汁，也不具酵素化學分解能力。",
+        points: [
+          "膽汁由肝臟製造，膽囊只負責儲存與濃縮！",
+          "切除膽囊的人依然能分泌膽汁，但短期吃太油容易消化不良。"
+        ],
+        microSvg: `<div class="text-xs text-emerald-300">膽囊收縮 ➔ 注入十二指腸 ➔ 協助脂肪消化</div>`
+      },
+      6: {
+        name: "胰臟 (Pancreas)",
+        sub: "最全能的消化腺 ‧ 分泌胰液",
+        ph: "pH 8.0～8.5 (弱鹼性)",
+        label: "全能胰液三大酵素",
+        physical: "分泌弱鹼性碳酸氫鈉，可中和從胃進入十二指腸的強酸性食糜。",
+        chemical: "分泌胰液，含有能同時分解三大營養素的酵素：胰澱粉酶、胰蛋白酶、胰脂肪酶。",
+        points: [
+          "最全能的消化液！醣類、蛋白質、脂質皆能分解。",
+          "胰液中和胃酸，提供小腸酵素發揮作用的弱鹼環境。",
+          "胰臟同時也是內分泌腺（分泌胰島素與升糖素）。"
+        ],
+        microSvg: `<div class="text-xs text-slate-300">胰液含澱粉酶、蛋白酶、脂肪酶 ➔ 全面分解三大養分</div>`
+      },
+      7: {
+        name: "十二指腸 (Duodenum)",
+        sub: "小腸前端 ‧ 消化液大會師交界處",
+        ph: "pH 7.5～8.5 (弱鹼性)",
+        label: "消化管樞紐",
+        physical: "接收酸性食糜，並與膽汁、胰液激烈翻攪混合。",
+        chemical: "膽管與胰管在此交會注入，三大營養素在此展開密集化學水解。",
+        points: [
+          "長度約為十二隻手指併攏的寬度。",
+          "膽汁與胰液均在此處注入消化管腔。"
+        ],
+        microSvg: `<div class="text-xs text-cyan-300">食糜 + 膽汁 + 胰液 ➔ 展開密集水解反應</div>`
+      },
+      8: {
+        name: "小腸 (空腸與迴腸)",
+        sub: "全身體積最大消化與吸收中心",
+        ph: "pH 7.5～8.5 (弱鹼性)",
+        label: "小腸絨毛剖面放大",
+        physical: "環狀皺褶與無數微小的「小腸絨毛」，大幅增加吸收表面積達數百倍！",
+        chemical: "分泌腸液，與胰液協同將養分徹底拆解成最小分子（葡萄糖、胺基酸、脂肪酸與甘油）。",
+        points: [
+          "人體最主要的消化與吸收器官！",
+          "終產物吸收途徑：葡萄糖/胺基酸走微血管；脂肪酸/甘油走乳糜管（淋巴）。",
+          "養分經小腸吸收後，經由循環系統運送至全身各細胞。"
+        ],
+        microSvg: `<div class="text-xs text-center"><span class="text-blue-300 font-bold">微血管</span> 吸收葡萄糖/胺基酸 ｜ <span class="text-amber-300 font-bold">乳糜管</span> 吸收脂質</div>`
+      },
+      9: {
+        name: "大腸 (盲腸與結腸)",
+        sub: "水分回收站 ‧ 無消化酵素",
+        ph: "pH 6.5～7.5",
+        label: "水分再吸收與共生菌",
+        physical: "強力吸收食物殘渣中多餘的水分與電解質，使殘渣逐漸脫水凝固成形為糞便。",
+        chemical: "大腸「不分泌任何消化酵素」，沒有化學消化功能！",
+        points: [
+          "大腸不分泌消化酵素！",
+          "大腸蠕動太快水分吸太少會腹瀉；蠕動太慢吸太多水會便秘。",
+          "大腸內有大量益生菌，能幫忙合成維生素 B 群與維生素 K。"
+        ],
+        microSvg: `<div class="text-xs text-emerald-300">殘餘水分被大腸上皮細胞主動吸收 ➔ 殘渣濃縮成形糞便</div>`
+      },
+      10: {
+        name: "闌尾 (Appendix)",
+        sub: "盲腸底部的盲端突起",
+        ph: "中性",
+        label: "淋巴免疫組織",
+        physical: "細長盲管，若糞便或食物殘渣阻塞容易引發發炎（闌尾炎）。",
+        chemical: "無化學消化功能。",
+        points: [
+          "富含淋巴組織，近年研究顯示為腸道共生菌的避難儲備所。",
+          "發炎時若未即時處理可能破裂引發腹膜炎。"
+        ],
+        microSvg: `<div class="text-xs text-slate-400">腸道共生菌儲備庫 ‧ 無直接消化酵素</div>`
+      },
+      11: {
+        name: "直腸與肛門 (Rectum & Anus)",
+        sub: "糞便暫存與排遺出口",
+        ph: "中性",
+        label: "排遺反射",
+        physical: "直腸平時是空的，當糞便填滿時刺激神經產生便意；肛門括約肌控制排便。",
+        chemical: "無化學消化功能。",
+        points: [
+          "生物學上排便屬於「排遺」（排出未消化的食物殘渣），而非「排泄」（排出代謝廢物）。",
+          "解剖學上肛門位於骨盆腔底部會陰處。"
+        ],
+        microSvg: `<div class="text-xs text-rose-300">糞便暫存 ➔ 括約肌舒張 ➔ 完成排遺</div>`
+      }
+    };
+
+    const organPolygonsGroup = document.getElementById('organPolygonsGroup');
+    const organBadge = document.getElementById('organBadge');
+    const organTitle = document.getElementById('organTitle');
+    const organSubTitle = document.getElementById('organSubTitle');
+    const organEnv = document.getElementById('organEnv');
+    const microscopicLabel = document.getElementById('microscopicLabel');
+    const microViewContent = document.getElementById('microViewContent');
+    const descPhysical = document.getElementById('descPhysical');
+    const descChemical = document.getElementById('descChemical');
+    const examKeyPoints = document.getElementById('examKeyPoints');
+    
+    const stopwatchDisplay = document.getElementById('stopwatchDisplay');
+    const timeScaleBadge = document.getElementById('timeScaleBadge');
+    const currentStage = document.getElementById('currentStage');
+    
+    const foodPath = document.getElementById('foodPath');
+    const foodBolus = document.getElementById('foodBolus');
+    const flashCircle = document.getElementById('flashCircle');
+    const btnPlay = document.getElementById('btnPlay');
+    const btnReset = document.getElementById('btnReset');
+    const playIcon = document.getElementById('playIcon');
+    const playText = document.getElementById('playText');
+    const imageUploader = document.getElementById('imageUploader');
+    const anatomyBaseImg = document.getElementById('anatomyBaseImg');
+    const imgPlaceholder = document.getElementById('imgPlaceholder');
+    const interactiveOverlay = document.getElementById('interactiveOverlay');
+
+    const btnToggleCalib = document.getElementById('btnToggleCalib');
+    const calibToolbar = document.getElementById('calibToolbar');
+    const calibTargetSelect = document.getElementById('calibTargetSelect');
+    const calibHandlesGroup = document.getElementById('calibHandlesGroup');
+    const btnSaveCalib = document.getElementById('btnSaveCalib');
+    const btnExportJson = document.getElementById('btnExportJson');
+    const btnResetCalib = document.getElementById('btnResetCalib');
+
+    const btn169 = document.getElementById('btn169');
+    const btnMobile = document.getElementById('btnMobile');
+    const mainContainer = document.getElementById('mainContainer');
+
+    let isCalibrating = false;
+    let draggedHandleType = null;
+    let draggedHandleIndex = null;
+    let currentOrganTargetId = null;
+    
+    let isPlaying = false;
+    let animFrame = null;
+    let animProgress = 0;
+    let speedMultiplier = 1;
+    let pathLength = 0;
+    let activeOrganId = 1;
+
+    function buildPathString(points) {
+      if (!points || points.length === 0) return "";
+      let d = `M ${points[0].x} ${points[0].y}`;
+      for (let i = 1; i < points.length; i++) {
+        const prev = points[i - 1];
+        const curr = points[i];
+        const mx = (prev.x + curr.x) / 2;
+        const my = (prev.y + curr.y) / 2;
+        d += ` Q ${prev.x} ${prev.y}, ${mx} ${my}`;
+      }
+      const last = points[points.length - 1];
+      d += ` L ${last.x} ${last.y}`;
+      return d;
+    }
+
+    function buildPolygonPoints(pts) {
+      return pts.map(p => `${p.x},${p.y}`).join(' ');
+    }
+
+    function renderOrganPolygons() {
+      organPolygonsGroup.innerHTML = '';
+      Object.keys(activeCalibrationData.organs).forEach(id => {
+        const pts = activeCalibrationData.organs[id];
+        const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+        poly.setAttribute('class', `organ-hotspot ${id == activeOrganId ? 'organ-active' : ''}`);
+        poly.setAttribute('points', buildPolygonPoints(pts));
+        poly.setAttribute('data-id', id);
+        
+        poly.addEventListener('click', (e) => {
+          if (isCalibrating && calibTargetSelect.value.startsWith('organ_')) {
+            insertPointOnOrgan(e, id);
+          } else {
+            selectOrgan(id);
+          }
+        });
+        
+        organPolygonsGroup.appendChild(poly);
+      });
+    }
+
+    function refreshAllViews() {
+      const d = buildPathString(activeCalibrationData.path);
+      foodPath.setAttribute('d', d);
+      pathLength = foodPath.getTotalLength();
+      renderOrganPolygons();
+      renderCalibrationHandles();
+    }
+
+    function renderCalibrationHandles() {
+      calibHandlesGroup.innerHTML = '';
+      if (!isCalibrating) return;
+
+      const target = calibTargetSelect.value;
+      if (target === 'path') {
+        activeCalibrationData.path.forEach((pt, idx) => {
+          const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          c.setAttribute('class', 'calib-handle');
+          c.setAttribute('cx', pt.x);
+          c.setAttribute('cy', pt.y);
+          c.setAttribute('r', '13');
+
+          const t = document.createElementNS("http://www.w3.org/2000/svg", "title");
+          t.textContent = `路徑點 #${idx+1} (${pt.x}, ${pt.y}) - Alt+點擊刪除`;
+          c.appendChild(t);
+
+          c.addEventListener('mousedown', (e) => startDrag(e, 'path', idx));
+          c.addEventListener('touchstart', (e) => startDrag(e, 'path', idx), { passive: false });
+          c.addEventListener('contextmenu', (e) => { e.preventDefault(); deletePathPoint(idx); });
+
+          calibHandlesGroup.appendChild(c);
+        });
+      } else if (target.startsWith('organ_')) {
+        const id = target.split('_')[1];
+        const pts = activeCalibrationData.organs[id] || [];
+        pts.forEach((pt, idx) => {
+          const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          c.setAttribute('class', 'calib-handle-organ');
+          c.setAttribute('cx', pt.x);
+          c.setAttribute('cy', pt.y);
+          c.setAttribute('r', '13');
+
+          const t = document.createElementNS("http://www.w3.org/2000/svg", "title");
+          t.textContent = `器官頂點 #${idx+1} (${pt.x}, ${pt.y}) - Alt+點擊刪除`;
+          c.appendChild(t);
+
+          c.addEventListener('mousedown', (e) => startDrag(e, 'organ', idx, id));
+          c.addEventListener('touchstart', (e) => startDrag(e, 'organ', idx, id), { passive: false });
+          c.addEventListener('contextmenu', (e) => { e.preventDefault(); deleteOrganPoint(id, idx); });
+
+          calibHandlesGroup.appendChild(c);
+        });
+      }
+    }
+
+    async function loadInitialCalibration() {
+      const localData = localStorage.getItem('digestive_flagship_calibration');
+      if (localData) {
+        try {
+          activeCalibrationData = JSON.parse(localData);
+          refreshAllViews();
+          return;
+        } catch (e) {
+          console.error("LocalStorage 解析錯誤", e);
+        }
+      }
+
+      try {
+        const res = await fetch('calibration.json');
+        if (res.ok) {
+          const jsonData = await res.json();
+          if (jsonData.path && jsonData.organs) {
+            activeCalibrationData = jsonData;
+            refreshAllViews();
+            return;
+          }
+        }
+      } catch (err) {}
+
+      activeCalibrationData = {
+        path: JSON.parse(JSON.stringify(DEFAULT_PATH_POINTS)),
+        organs: JSON.parse(JSON.stringify(DEFAULT_ORGAN_POLYGONS))
+      };
+      refreshAllViews();
+    }
+
+    function startDrag(e, type, idx, organId = null) {
+      if (!isCalibrating) return;
+      if (e.altKey) {
+        if (type === 'path') deletePathPoint(idx);
+        else deleteOrganPoint(organId, idx);
+        return;
+      }
+      draggedHandleType = type;
+      draggedHandleIndex = idx;
+      currentOrganTargetId = organId;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    function getSvgCoordinates(e) {
+      const pt = interactiveOverlay.createSVGPoint();
+      if (e.touches && e.touches.length > 0) {
+        pt.x = e.touches[0].clientX;
+        pt.y = e.touches[0].clientY;
+      } else {
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+      }
+      return pt.matrixTransform(interactiveOverlay.getScreenCTM().inverse());
+    }
+
+    function onPointerMove(e) {
+      if (draggedHandleIndex === null || !isCalibrating) return;
+      const coords = getSvgCoordinates(e);
+      const nx = Math.round(coords.x);
+      const ny = Math.round(coords.y);
+
+      if (draggedHandleType === 'path') {
+        activeCalibrationData.path[draggedHandleIndex].x = nx;
+        activeCalibrationData.path[draggedHandleIndex].y = ny;
+      } else if (draggedHandleType === 'organ' && currentOrganTargetId) {
+        activeCalibrationData.organs[currentOrganTargetId][draggedHandleIndex].x = nx;
+        activeCalibrationData.organs[currentOrganTargetId][draggedHandleIndex].y = ny;
+      }
+      refreshAllViews();
+    }
+
+    function onPointerUp() {
+      draggedHandleIndex = null;
+      draggedHandleType = null;
+    }
+
+    window.addEventListener('mousemove', onPointerMove);
+    window.addEventListener('mouseup', onPointerUp);
+    window.addEventListener('touchmove', onPointerMove, { passive: false });
+    window.addEventListener('touchend', onPointerUp);
+
+    foodPath.addEventListener('click', (e) => {
+      if (!isCalibrating || calibTargetSelect.value !== 'path') return;
+      const coords = getSvgCoordinates(e);
+      insertPointOnPath(coords.x, coords.y);
+    });
+
+    function insertPointOnPath(x, y) {
+      let bestIdx = activeCalibrationData.path.length;
+      let minDist = Infinity;
+      for (let i = 0; i < activeCalibrationData.path.length - 1; i++) {
+        const p1 = activeCalibrationData.path[i];
+        const p2 = activeCalibrationData.path[i+1];
+        const dist = Math.hypot((p1.x + p2.x)/2 - x, (p1.y + p2.y)/2 - y);
+        if (dist < minDist) {
+          minDist = dist;
+          bestIdx = i + 1;
+        }
+      }
+      activeCalibrationData.path.splice(bestIdx, 0, { x: Math.round(x), y: Math.round(y) });
+      refreshAllViews();
+    }
+
+    function deletePathPoint(idx) {
+      if (activeCalibrationData.path.length <= 2) {
+        alert("路徑至少需要保留 2 個節點！");
+        return;
+      }
+      activeCalibrationData.path.splice(idx, 1);
+      refreshAllViews();
+    }
+
+    function insertPointOnOrgan(e, organId) {
+      const coords = getSvgCoordinates(e);
+      const pts = activeCalibrationData.organs[organId];
+      if (!pts) return;
+
+      let bestIdx = pts.length;
+      let minDist = Infinity;
+      for (let i = 0; i < pts.length; i++) {
+        const p1 = pts[i];
+        const p2 = pts[(i + 1) % pts.length];
+        const dist = Math.hypot((p1.x + p2.x)/2 - coords.x, (p1.y + p2.y)/2 - coords.y);
+        if (dist < minDist) {
+          minDist = dist;
+          bestIdx = i + 1;
+        }
+      }
+      pts.splice(bestIdx, 0, { x: Math.round(coords.x), y: Math.round(coords.y) });
+      refreshAllViews();
+    }
+
+    function deleteOrganPoint(organId, idx) {
+      const pts = activeCalibrationData.organs[organId];
+      if (pts.length <= 3) {
+        alert("多邊形外框至少需要保留 3 個頂點！");
+        return;
+      }
+      pts.splice(idx, 1);
+      refreshAllViews();
+    }
+
+    calibTargetSelect.addEventListener('change', () => {
+      renderCalibrationHandles();
+    });
+
+    // 關鍵修正：切換校準模式時才顯示紅點與路徑，一般狀態全隱藏
+    btnToggleCalib.addEventListener('click', () => {
+      isCalibrating = !isCalibrating;
+      if (isCalibrating) {
+        calibToolbar.classList.remove('hidden');
+        calibHandlesGroup.classList.remove('hidden');
+        foodPath.setAttribute('stroke', 'rgba(56, 189, 248, 0.45)');
+        foodPath.classList.add('path-clickable');
+        btnToggleCalib.classList.add('bg-amber-600', 'text-white');
+        btnToggleCalib.classList.remove('bg-slate-800', 'text-amber-300');
+        renderCalibrationHandles();
+      } else {
+        calibToolbar.classList.add('hidden');
+        calibHandlesGroup.classList.add('hidden');
+        foodPath.setAttribute('stroke', 'transparent');
+        foodPath.classList.remove('path-clickable');
+        btnToggleCalib.classList.remove('bg-amber-600', 'text-white');
+        btnToggleCalib.classList.add('bg-slate-800', 'text-amber-300');
+      }
+    });
+
+    btnSaveCalib.addEventListener('click', () => {
+      localStorage.setItem('digestive_flagship_calibration', JSON.stringify(activeCalibrationData));
+      alert("✅ 包含「食物路徑」與「全部器官外框」的設定已成功儲存！下次開啟自動套用！");
+    });
+
+    btnExportJson.addEventListener('click', () => {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(activeCalibrationData, null, 2));
+      const dlAnchor = document.createElement('a');
+      dlAnchor.setAttribute("href", dataStr);
+      dlAnchor.setAttribute("download", "calibration.json");
+      document.body.appendChild(dlAnchor);
+      dlAnchor.click();
+      dlAnchor.remove();
+    });
+
+    btnResetCalib.addEventListener('click', () => {
+      if (confirm("確定要重設並清空所有自訂路徑與外框嗎？")) {
+        localStorage.removeItem('digestive_flagship_calibration');
+        activeCalibrationData = {
+          path: JSON.parse(JSON.stringify(DEFAULT_PATH_POINTS)),
+          organs: JSON.parse(JSON.stringify(DEFAULT_ORGAN_POLYGONS))
+        };
+        refreshAllViews();
+      }
+    });
+
+    window.handleImageError = function() {
+      anatomyBaseImg.classList.add('hidden');
+      imgPlaceholder.classList.remove('hidden');
+    };
+
+    imageUploader.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          anatomyBaseImg.src = event.target.result;
+          anatomyBaseImg.classList.remove('hidden');
+          imgPlaceholder.classList.add('hidden');
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    function isPointInPolygon(point, vs) {
+      const x = point.x, y = point.y;
+      let inside = false;
+      for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+        const xi = vs[i].x, yi = vs[i].y;
+        const xj = vs[j].x, yj = vs[j].y;
+        const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function selectOrgan(id) {
+      activeOrganId = id;
+      const info = organData[id];
+      if (!info) return;
+
+      document.querySelectorAll('.organ-hotspot').forEach(el => {
+        if (el.getAttribute('data-id') == id) el.classList.add('organ-active');
+        else el.classList.remove('organ-active');
+      });
+
+      organBadge.textContent = id;
+      organTitle.textContent = info.name;
+      organSubTitle.textContent = info.sub;
+      organEnv.textContent = info.ph;
+      microscopicLabel.textContent = info.label;
+      microViewContent.innerHTML = info.microSvg;
+      descPhysical.textContent = info.physical;
+      descChemical.textContent = info.chemical;
+      examKeyPoints.innerHTML = info.points.map(pt => `<li>${pt}</li>`).join('');
+    }
+
+    function triggerFlash(x, y) {
+      flashCircle.setAttribute('cx', x);
+      flashCircle.setAttribute('cy', y);
+      flashCircle.classList.remove('flash-pulse');
+      void flashCircle.offsetWidth;
+      flashCircle.classList.add('flash-pulse');
+    }
+
+    let lastTimestamp = null;
+    let elapsedRealSeconds = 0;
+    let lastDetectedOrganId = null;
+
+    function updateSimulation(timestamp) {
+      if (!lastTimestamp) lastTimestamp = timestamp;
+      const delta = (timestamp - lastTimestamp) / 1000;
+      lastTimestamp = timestamp;
+
+      elapsedRealSeconds += delta * speedMultiplier;
+      animProgress = Math.min(elapsedRealSeconds / 14, 1);
+
+      const currentDist = animProgress * pathLength;
+      const pt = foodPath.getPointAtLength(currentDist);
+      foodBolus.setAttribute('cx', pt.x);
+      foodBolus.setAttribute('cy', pt.y);
+      foodBolus.setAttribute('opacity', '1');
+
+      for (const id of [1, 2, 3, 7, 8, 9, 11]) {
+        const poly = activeCalibrationData.organs[id];
+        if (poly && isPointInPolygon(pt, poly)) {
+          if (lastDetectedOrganId != id) {
+            lastDetectedOrganId = id;
+            triggerFlash(pt.x, pt.y);
+            selectOrgan(id);
+          }
+          break;
+        }
+      }
+
+      let displayHours = 0;
+      let displayMins = 0;
+      let displaySecs = 0;
+
+      if (animProgress < 0.12) {
+        timeScaleBadge.textContent = "真實 1 秒 = 生理 1 秒 (口腔/食道)";
+        timeScaleBadge.className = "inline-block text-[10px] px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-800/50";
+        currentStage.textContent = "狀態：口腔咀嚼與吞嚥";
+        
+        displaySecs = Math.floor(elapsedRealSeconds * 3);
+        stopwatchDisplay.textContent = `00 小時 00 分 ${displaySecs.toString().padStart(2, '0')} 秒`;
+      } else {
+        timeScaleBadge.textContent = "真實 1 秒 = 生理 1 小時 (每10分鐘跳動)";
+        timeScaleBadge.className = "inline-block text-[10px] px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-300 border border-cyan-800/50";
+        
+        const virtualHours = (elapsedRealSeconds - 1.5) * 1.8;
+        displayHours = Math.max(0, Math.floor(virtualHours));
+        const rawMins = Math.floor((virtualHours - displayHours) * 60);
+        displayMins = Math.floor(rawMins / 10) * 10;
+        
+        if (animProgress < 0.42) {
+          currentStage.textContent = "狀態：胃部強酸研磨 (約2~4小時)";
+        } else if (animProgress < 0.72) {
+          currentStage.textContent = "狀態：小腸極致消化與雙軌吸收 (約3~5小時)";
+        } else {
+          currentStage.textContent = "狀態：大腸吸收水分成形便便 (約10~20小時)";
+        }
+
+        stopwatchDisplay.textContent = `${displayHours.toString().padStart(2, '0')} 小時 ${displayMins.toString().padStart(2, '0')} 分 00 秒`;
+      }
+
+      if (animProgress < 1 && isPlaying) {
+        animFrame = requestAnimationFrame(updateSimulation);
+      } else if (animProgress >= 1) {
+        isPlaying = false;
+        playIcon.textContent = "▶";
+        playText.textContent = "重新開始";
+        currentStage.textContent = "狀態：消化完成，準備排遺";
+      }
+    }
+
+    btnPlay.addEventListener('click', () => {
+      if (isPlaying) {
+        isPlaying = false;
+        cancelAnimationFrame(animFrame);
+        playIcon.textContent = "▶";
+        playText.textContent = "繼續旅程";
+      } else {
+        if (animProgress >= 1) {
+          animProgress = 0;
+          elapsedRealSeconds = 0;
+          lastDetectedOrganId = null;
+        }
+        isPlaying = true;
+        lastTimestamp = null;
+        playIcon.textContent = "⏸";
+        playText.textContent = "暫停模擬";
+        animFrame = requestAnimationFrame(updateSimulation);
+      }
+    });
+
+    btnReset.addEventListener('click', () => {
+      isPlaying = false;
+      cancelAnimationFrame(animFrame);
+      animProgress = 0;
+      elapsedRealSeconds = 0;
+      lastDetectedOrganId = null;
+      foodBolus.setAttribute('opacity', '0');
+      playIcon.textContent = "▶";
+      playText.textContent = "開始消化旅程";
+      stopwatchDisplay.textContent = "00 小時 00 分 00 秒";
+      currentStage.textContent = "狀態：準備中";
+      selectOrgan(1);
+    });
+
+    document.querySelectorAll('.speed-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.speed-btn').forEach(b => {
+          b.className = "speed-btn px-2.5 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700 transition";
+        });
+        btn.className = "speed-btn px-2.5 py-1 rounded bg-cyan-600 text-white font-bold shadow transition";
+        speedMultiplier = parseFloat(btn.getAttribute('data-speed'));
+      });
+    });
+
+    btn169.addEventListener('click', () => {
+      btn169.className = "px-2.5 py-1 rounded bg-cyan-600 text-white font-medium shadow transition";
+      btnMobile.className = "px-2.5 py-1 rounded text-slate-400 hover:text-white font-medium transition";
+      mainContainer.className = "w-full max-w-7xl flex flex-col lg:flex-row gap-6 items-start transition-all duration-300";
+    });
+
+    btnMobile.addEventListener('click', () => {
+      btnMobile.className = "px-2.5 py-1 rounded bg-cyan-600 text-white font-medium shadow transition";
+      btn169.className = "px-2.5 py-1 rounded text-slate-400 hover:text-white font-medium transition";
+      mainContainer.className = "w-full max-w-md flex flex-col gap-6 items-start transition-all duration-300 mx-auto";
+    });
+
+    loadInitialCalibration();
+    selectOrgan(1);
+  </script>
+</body>
+</html>
